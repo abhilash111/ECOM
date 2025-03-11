@@ -18,7 +18,7 @@ func NewUserStore(db *sql.DB) *Store {
 }
 
 func (s *Store) GetUserByEmail(email string) (*types.User, error) {
-	rows, err := s.DB.Query("SELECT * FROM users WHERE email = $1", email)
+	rows, err := s.DB.Query("SELECT * FROM users WHERE email = ?", email)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (s *Store) GetUserByEmail(email string) (*types.User, error) {
 }
 
 func (s *Store) GetUserById(id int) (*types.User, error) {
-	rows, err := s.DB.Query("SELECT * FROM users WHERE id = $1", id)
+	rows, err := s.DB.Query("SELECT * FROM users WHERE id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (s *Store) GetUserById(id int) (*types.User, error) {
 }
 
 func (s *Store) CreateUser(user *types.User) error {
-	_, err := s.DB.Exec("INSERT INTO users (first_name, last_name, email, password, created_at) VALUES ($1, $2, $3, $4, $5)", user.FirstName, user.LastName, user.Email, user.Password, user.CreatedAt)
+	_, err := s.DB.Exec("INSERT INTO users (firstName, lastName, email, password) VALUES (?,?,?,?)", user.FirstName, user.LastName, user.Email, user.Password)
 	if err != nil {
 		return err
 	}

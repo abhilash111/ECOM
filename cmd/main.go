@@ -23,14 +23,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	inittStorage(db)
+	initStorage(db)
 	server := api.NewApiServer("localhost:8080", db)
 	if err := server.Start(); err != nil {
 		log.Println("Error starting server", err)
 	}
 }
 
-func inittStorage(db *sql.DB) {
+func initStorage(db *sql.DB) {
 	err :=
 		db.Ping()
 	if err != nil {
