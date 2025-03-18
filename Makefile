@@ -1,11 +1,8 @@
 build:
 	@go build -o bin/ecom cmd/main.go
 
-.PHONY: build test run migration migrate-up migrate-down
-
 test:
 	@go test -v ./...
-
 run:
 	@go run cmd/main.go
 
