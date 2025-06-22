@@ -11,6 +11,8 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: kulkarni11
       MYSQL_DATABASE: ecom
+      MYSQL_ROOT_HOST: '%'
+
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
