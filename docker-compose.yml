@@ -19,12 +19,11 @@ services:
       timeout: 3s
 
   api:
+    image: 448270596903.dkr.ecr.ap-south-1.amazonaws.com/hardware-ecom:latest
     build: 
       context: .
       dockerfile: Dockerfile
     restart: on-failure
-    volumes:
-      - .:/go/src/api
     ports:
       - "8080:8080"
     environment:
