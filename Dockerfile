@@ -5,7 +5,7 @@ WORKDIR /app
 
 # pre-copy/cache go.mod for pre-downloading dependencies and only redownloading them in subsequent builds if they change
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod tidy
 
 COPY . .
 
@@ -14,7 +14,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /api ./cmd/main.go
 # Run the tests in the container
 FROM build-stage AS run-test-stage
 RUN go test -v ./...
-
 
 # Deploy the application binary into a lean image
 FROM scratch AS build-release-stage
