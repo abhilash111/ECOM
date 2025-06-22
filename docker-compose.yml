@@ -1,14 +1,13 @@
-version: '3.8'  # Updated version
+version: '3.8'
 
 services:
-
   db:
     image: mysql:8.0
     restart: always
     volumes:
       - db_data:/var/lib/mysql
     ports:
-      - "3307:3306"  # Expose MySQL on 3307
+      - "3306:3306"  # Or remove if you don't need external MySQL access
     environment:
       MYSQL_ROOT_PASSWORD: kulkarni11
       MYSQL_DATABASE: ecom
@@ -20,21 +19,18 @@ services:
 
   api:
     image: 448270596903.dkr.ecr.ap-south-1.amazonaws.com/hardware-ecom:latest
-    build: 
-      context: .
-      dockerfile: Dockerfile
     restart: on-failure
     ports:
       - "8080:8080"
     environment:
-      DB_HOST: db  # Keep 'db' because it's in the same network
-      DB_PORT: 3306  # Inside Docker, MySQL runs on 3306
+      DB_HOST: db
+      DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: kulkarni11
       DB_NAME: ecom
     depends_on:
       db:
-        condition: service_healthy  # ✅ Wait until MySQL is fully ready
+        condition: service_healthy
 
 volumes:
   db_data:
