@@ -7,7 +7,7 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     ports:
-      - "3306:3306"  # Or remove if you don't need external MySQL access
+      - "3306:3306"  # Or remove if you don't need external MySQL access Make it 3307:3306 when running locally
     environment:
       MYSQL_ROOT_PASSWORD: kulkarni11
       MYSQL_DATABASE: ecom
@@ -20,6 +20,9 @@ services:
       timeout: 3s
 
   api:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     image: 448270596903.dkr.ecr.ap-south-1.amazonaws.com/hardware-ecom:latest
     restart: on-failure
     ports:
