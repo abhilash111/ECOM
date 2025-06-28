@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/abhilash111/ecom/config"
-	"github.com/abhilash111/ecom/db"
+	"github.com/abhilash111/ecom/pkg/db"
 	mysqlConfig "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/mysql"
