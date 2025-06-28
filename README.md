@@ -62,7 +62,7 @@ If you want to run without Docker:
 
 1️⃣ Make sure MySQL is running locally (on 127.0.0.1:3306 or adjust config)2️⃣ Load .env variables or set them manually3️⃣ Run:
 
-go run ./cmd/main.go
+go run ./cmd/server/main.go
 
 🐳 Docker Compose summary
 
