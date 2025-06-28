@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/abhilash111/ecom/types"
+	"github.com/abhilash111/ecom/internal/types"
 	"github.com/gorilla/mux"
 )
 

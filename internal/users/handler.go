@@ -7,8 +7,8 @@ import (
 
 	"github.com/abhilash111/ecom/config"
 	"github.com/abhilash111/ecom/internal/auth"
+	"github.com/abhilash111/ecom/internal/types"
 	"github.com/abhilash111/ecom/pkg/utils"
-	"github.com/abhilash111/ecom/types"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
 )

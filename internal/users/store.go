@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/abhilash111/ecom/types"
+	"github.com/abhilash111/ecom/internal/types"
 )
 
 type Store struct {

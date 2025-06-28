@@ -5,7 +5,7 @@ import (
 	"log"
 
 	"github.com/abhilash111/ecom/config"
-	"github.com/abhilash111/ecom/internal/api"
+	"github.com/abhilash111/ecom/internal/router"
 	"github.com/abhilash111/ecom/pkg/db"
 	"github.com/go-sql-driver/mysql"
 )
@@ -24,7 +24,7 @@ func main() {
 		log.Fatal(err)
 	}
 	initStorage(db)
-	server := api.NewApiServer("0.0.0.0:8080", db)
+	server := router.NewApiServer("0.0.0.0:8080", db)
 	if err := server.Start(); err != nil {
 		log.Println("Error starting server", err)
 	}

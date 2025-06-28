@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/abhilash111/ecom/config"
+	"github.com/abhilash111/ecom/internal/types"
 	"github.com/abhilash111/ecom/pkg/utils"
-	"github.com/abhilash111/ecom/types"
 	"github.com/golang-jwt/jwt/v5"
 )
 
