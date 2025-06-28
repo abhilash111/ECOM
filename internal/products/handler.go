@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/abhilash111/ecom/service/auth"
+	"github.com/abhilash111/ecom/internal/auth"
+	"github.com/abhilash111/ecom/pkg/utils"
 	"github.com/abhilash111/ecom/types"
-	"github.com/abhilash111/ecom/utils"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
 )

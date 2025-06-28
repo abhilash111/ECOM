@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/abhilash111/ecom/service/products"
-	"github.com/abhilash111/ecom/service/user"
+	"github.com/abhilash111/ecom/internal/products"
+	user "github.com/abhilash111/ecom/internal/users"
 	"github.com/gorilla/mux"
 )
 

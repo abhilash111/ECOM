@@ -6,9 +6,9 @@ import (
 	"strconv"
 
 	"github.com/abhilash111/ecom/config"
-	"github.com/abhilash111/ecom/service/auth"
+	"github.com/abhilash111/ecom/internal/auth"
+	"github.com/abhilash111/ecom/pkg/utils"
 	"github.com/abhilash111/ecom/types"
-	"github.com/abhilash111/ecom/utils"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
 )
@@ -79,7 +79,7 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// check if user exists
 	_, err := h.store.GetUserByEmail(user.Email)
 	if err == nil {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("user with email %s already exists .", user.Email))
+		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("user with email %s already exists", user.Email))
 		return
 	}
 
