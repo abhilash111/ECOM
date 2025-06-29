@@ -2,39 +2,26 @@ package router
 
 import (
 	"database/sql"
-	"log"
-	"net/http"
 
 	"github.com/abhilash111/ecom/internal/products"
 	user "github.com/abhilash111/ecom/internal/users"
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
-type APIServer struct {
-	addr string
-	db   *sql.DB
-}
+func SetupRouter(db *sql.DB) *gin.Engine {
+	r := gin.Default()
 
-func NewApiServer(addr string, db *sql.DB) *APIServer {
-	return &APIServer{
-		addr,
-		db,
-	}
-}
+	api := r.Group("/api/v1")
 
-func (s *APIServer) Start() error {
-	router := mux.NewRouter()
-
-	subrouter := router.PathPrefix("/api/v1").Subrouter()
-
-	userStore := user.NewStore(s.db)
+	// user routes
+	userStore := user.NewStore(db)
 	userHandler := user.NewHandler(userStore)
-	userHandler.RegisterRoutes(subrouter)
+	userHandler.RegisterRoutes(api)
 
-	productStore := products.NewStore(s.db)
+	// product routes
+	productStore := products.NewStore(db)
 	productHandler := products.NewHandler(productStore, userStore)
-	productHandler.RegisterRoutes(subrouter)
+	productHandler.RegisterRoutes(api)
 
-	log.Println("Starting server on", s.addr)
-	return http.ListenAndServe(s.addr, router)
+	return r
 }

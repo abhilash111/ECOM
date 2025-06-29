@@ -9,8 +9,8 @@ import (
 	"github.com/abhilash111/ecom/internal/auth"
 	"github.com/abhilash111/ecom/internal/types"
 	"github.com/abhilash111/ecom/pkg/utils"
+	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"github.com/gorilla/mux"
 )
 
 type Handler struct {
@@ -21,72 +21,67 @@ func NewHandler(store types.UserStore) *Handler {
 	return &Handler{store: store}
 }
 
-func (h *Handler) RegisterRoutes(router *mux.Router) {
-	router.HandleFunc("/login", h.handleLogin).Methods("POST")
-	router.HandleFunc("/register", h.handleRegister).Methods("POST")
+func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
+	router.POST("/login", h.handleLogin)
+	router.POST("/register", h.handleRegister)
 
+	authGroup := router.Group("/users")
+	authGroup.Use(auth.JWTAuthMiddleware(h.store)) // Apply JWT auth middleware to this group
 	// admin routes
-	router.HandleFunc("/users/{userID}", auth.WithJWTAuth(h.handleGetUser, h.store)).Methods(http.MethodGet)
+	authGroup.GET("/:userID", h.handleGetUser)
 }
 
-func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleLogin(c *gin.Context) {
 	var user types.LoginUserPayload
-	if err := utils.ParseJSON(r, &user); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, err)
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	if err := utils.Validate.Struct(user); err != nil {
 		errors := err.(validator.ValidationErrors)
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid payload: %v", errors))
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid payload: %v", errors)})
 		return
 	}
 
 	u, err := h.store.GetUserByEmail(user.Email)
-	if err != nil {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("not found, invalid email or password."))
-		return
-	}
-
-	if !auth.ComparePasswords(u.Password, []byte(user.Password)) {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid email or password"))
+	if err != nil || !auth.ComparePasswords(u.Password, []byte(user.Password)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid email or password"})
 		return
 	}
 
 	secret := []byte(config.Envs.JWTSecret)
 	token, err := auth.CreateJWT(secret, u.ID)
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create token"})
 		return
 	}
 
-	utils.WriteJSON(w, http.StatusOK, map[string]string{"token": token})
+	c.JSON(http.StatusOK, gin.H{"token": token})
 }
 
-func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleRegister(c *gin.Context) {
 	var user types.RegisterUserPayload
-	if err := utils.ParseJSON(r, &user); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, err)
+	if err := c.ShouldBindJSON(&user); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	if err := utils.Validate.Struct(user); err != nil {
 		errors := err.(validator.ValidationErrors)
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid payload: %v", errors))
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid payload: %v", errors)})
 		return
 	}
 
-	// check if user exists
 	_, err := h.store.GetUserByEmail(user.Email)
 	if err == nil {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("user with email %s already exists", user.Email))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user with this email already exists"})
 		return
 	}
 
-	// hash password
 	hashedPassword, err := auth.HashPassword(user.Password)
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
 		return
 	}
 
@@ -97,32 +92,26 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Password:  hashedPassword,
 	})
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}
 
-	utils.WriteJSON(w, http.StatusCreated, nil)
+	c.JSON(http.StatusCreated, gin.H{"message": "user registered successfully"})
 }
 
-func (h *Handler) handleGetUser(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	str, ok := vars["userID"]
-	if !ok {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("missing user ID"))
-		return
-	}
-
-	userID, err := strconv.Atoi(str)
+func (h *Handler) handleGetUser(c *gin.Context) {
+	userIDStr := c.Param("userID")
+	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
-		utils.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid user ID"))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user ID"})
 		return
 	}
 
 	user, err := h.store.GetUserByID(userID)
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
 		return
 	}
 
-	utils.WriteJSON(w, http.StatusOK, user)
+	c.JSON(http.StatusOK, user)
 }

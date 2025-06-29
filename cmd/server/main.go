@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"log"
 
 	"github.com/abhilash111/ecom/config"
@@ -11,7 +10,7 @@ import (
 )
 
 func main() {
-	db, err := db.NewMySqlDB(mysql.Config{
+	conn, err := db.NewMySqlDB(mysql.Config{
 		User:                 config.Envs.DBUser,
 		Passwd:               config.Envs.DBPassword,
 		Addr:                 config.Envs.DBAddress,
@@ -21,19 +20,13 @@ func main() {
 		ParseTime:            true,
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("DB connection failed:", err)
 	}
-	initStorage(db)
-	server := router.NewApiServer("0.0.0.0:8080", db)
-	if err := server.Start(); err != nil {
-		log.Println("Error starting server", err)
-	}
-}
 
-func initStorage(db *sql.DB) {
-	err :=
-		db.Ping()
-	if err != nil {
-		log.Fatal(err)
+	r := router.SetupRouter(conn)
+
+	log.Println("Starting server on port", config.Envs.Port)
+	if err := r.Run(":" + config.Envs.Port); err != nil {
+		log.Fatal("Failed to start server:", err)
 	}
 }

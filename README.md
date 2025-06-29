@@ -147,3 +147,10 @@ docker-compose up -d
 - Use secrets management for `DB_PASSWORD` + `JWT_SECRET`.
 - Enable HTTPS with reverse proxy (Nginx / ALB).
 - Add database migrations (e.g., golang-migrate).
+- Use Different DB like RDS (right now we are running mysql in EC2 insatnce only)
+- RBAC
+- Session Management
+
+## Bug Fix
+
+- Generating token in local and put in PROD also working ( Need to have Secrets Seperatly for Local env and PROD)
