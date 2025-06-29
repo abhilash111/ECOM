@@ -17,17 +17,16 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) GetProductByID(productID int) (*types.Product, error) {
-	rows, err := s.db.Query("SELECT * FROM products WHERE id = ?", productID)
-	if err != nil {
-		return nil, err
-	}
+	row := s.db.QueryRow("SELECT * FROM products WHERE id = ?", productID)
 
 	p := new(types.Product)
-	for rows.Next() {
-		p, err = scanRowsIntoProduct(rows)
-		if err != nil {
-			return nil, err
-		}
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Image, &p.Price, &p.Quantity, &p.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("product not found")
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	return p, nil

@@ -56,6 +56,8 @@ func (h *Handler) handleGetProduct(c *gin.Context) {
 	}
 
 	product, err := h.store.GetProductByID(productID)
+	fmt.Printf("Product ID: %d, Product: %+v\n", productID, product)
+	fmt.Printf("Error: %v\n", err)
 	if err != nil {
 		utils.WriteError(c.Writer, http.StatusInternalServerError, err)
 		return
