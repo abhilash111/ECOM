@@ -1,4 +1,4 @@
-version: '3.8'
+# version: '3.9'
 
 services:
   db:
@@ -7,7 +7,8 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     ports:
-      - "3306:3306"  # Or remove if you don't need external MySQL access Make it 3307:3306 when running locally
+      - 3307:3306  # Change to 3307:3306 for local development to avoid conflicts with existing MySQL instances
+      # - "3306:3306"  # Or remove if you don't need external MySQL access Make it 3307:3306 when running locally
     environment:
       MYSQL_ROOT_PASSWORD: kulkarni11
       MYSQL_DATABASE: ecom
@@ -15,27 +16,46 @@ services:
 
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
+      interval: 15s
       retries: 5
       timeout: 3s
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - "6379:6379"  # Expose Redis on port 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      retries: 5
+      timeout: 3s # Health check for Redis  server          
+    volumes:
+      - redis_data:/data  # Persist Redis data
 
   api:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    image: 448270596903.dkr.ecr.ap-south-1.amazonaws.com/hardware-ecom:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # image: 448270596903.dkr.ecr.ap-south-1.amazonaws.com/hardware-ecom:latest
     restart: on-failure
     ports:
       - "8080:8080"
+    env_file:
+      - .env.dev  # or use .env.prod in production
     environment:
       DB_HOST: db
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: kulkarni11
       DB_NAME: ecom
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
   db_data:
+  redis_data:

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/abhilash111/ecom/internal/config"
+	"github.com/abhilash111/ecom/config"
 	"github.com/go-redis/redis/v8"
 )
 
@@ -16,7 +16,7 @@ var (
 
 func InitRedis() error {
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", config.AppConfig.RedisHost, config.AppConfig.RedisPort),
+		Addr:     fmt.Sprintf("%s:%s", config.Envs.RedisHost, config.Envs.RedisPort),
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
