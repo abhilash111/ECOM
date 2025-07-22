@@ -44,6 +44,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "docker-compose.yml"
           target: "~/deploy/hardware-ecom/"
+      # Copy /infra/dev.env to EC2
+      - name: Upload dev.env to EC2
+        uses: appleboy/scp-action@v0.1.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "infra/dev.env"
+          target: "~/deploy/hardware-ecom/infra/"
 
       # SSH into EC2 and deploy with docker-compose
       - name: SSH into EC2 and deploy
