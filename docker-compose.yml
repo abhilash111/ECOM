@@ -41,7 +41,8 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - .env.dev  # or use .env.prod in production
+    # use /infra/dev.env for development
+      - /infra/dev.env  # Use this for local development
     environment:
       DB_HOST: db
       DB_PORT: 3306
