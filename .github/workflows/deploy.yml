@@ -52,7 +52,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "infra/dev.env"
-          target: "~/deploy/hardware-ecom/infra/"
+          target: "~/deploy/hardware-ecom/"
 
       # SSH into EC2 and deploy with docker-compose
       - name: SSH into EC2 and deploy
