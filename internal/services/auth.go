@@ -8,8 +8,8 @@ import (
 
 	"github.com/abhilash111/ecom/config"
 	"github.com/abhilash111/ecom/internal/models"
-	"github.com/abhilash111/ecom/internal/repository"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
 	"github.com/golang-jwt/jwt/v5"
@@ -61,17 +61,6 @@ func (s *authService) SignUp(email, phoneNumber, password string, roles []models
 		}
 		rolesStr += string(role)
 	}
-	fmt.Println("rolesStr", rolesStr)
-	fmt.Println("email", email)
-	fmt.Println("cognitoAppID", config.Envs.CognitoAppID)
-	fmt.Println("CognitoAppSecret", config.Envs.CognitoAppSecret)
-	fmt.Println("JWTSECRET", config.Envs.JWTSecret)
-
-	fmt.Println("cognitoAppSecret1", config.Envs.CognitoAppID, config.Envs.CognitoAppSecret, email, aws.String(calculateSecretHash(
-		config.Envs.CognitoAppID,
-		config.Envs.CognitoAppSecret,
-		email,
-	)))
 	// Create user in Cognito
 	signUpInput := &cognitoidentityprovider.SignUpInput{
 		ClientId: aws.String(config.Envs.CognitoAppID),
@@ -187,85 +176,162 @@ func (s *authService) InitiatePhoneLogin(phoneNumber string) (string, error) {
 
 	return otp, nil
 }
-
 func (s *authService) VerifyPhoneLogin(phoneNumber, otp string) (*AuthResponse, error) {
-	// Verify OTP
-	valid, err := s.otpService.VerifyOTP(phoneNumber, otp)
-	if err != nil {
-		return nil, err
-	}
-	if !valid {
-		return nil, fmt.Errorf("invalid OTP")
-	}
-
-	// Clean up OTP
-	_ = repository.DeleteOTP(phoneNumber)
-
-	// Get user by phone number
+	// 1. Get user by phone number
 	user, err := s.userService.GetUserByPhone(phoneNumber)
 	if err != nil {
 		return nil, fmt.Errorf("user not found")
 	}
 
-	// Initiate custom auth flow with Cognito
+	// 2. Extract Cognito username (assuming user.Email is Cognito username)
+	username := user.Email
+	fmt.Println("Verifying login for Cognito username:", username)
+
+	// 3. Initialize Cognito client
 	sess := session.Must(session.NewSession())
 	cognitoSvc := cognitoidentityprovider.New(sess, aws.NewConfig().WithRegion(config.Envs.CognitoRegion))
 
-	// Initiate custom auth flow
+	// 4. Prepare AuthParameters
 	authParams := map[string]*string{
-		"USERNAME": aws.String(user.Email),
+		"USERNAME":       aws.String(username),
+		"CHALLENGE_NAME": aws.String("CUSTOM_CHALLENGE"),
 	}
 
-	fmt.Println("user.Email", user.Email)
-	// Add SECRET_HASH if client secret exists
+	// 5. Compute SECRET_HASH if needed
+	var secretHash string
 	if config.Envs.CognitoAppSecret != "" {
-		authParams["SECRET_HASH"] = aws.String(calculateSecretHash(
+		secretHash = calculateSecretHash(
 			config.Envs.CognitoAppID,
 			config.Envs.CognitoAppSecret,
-			user.Email,
-		))
+			username,
+		)
+		authParams["SECRET_HASH"] = aws.String(secretHash)
 	}
 
+	// 6. Initiate Custom Auth
 	initAuthResp, err := cognitoSvc.InitiateAuth(&cognitoidentityprovider.InitiateAuthInput{
 		AuthFlow:       aws.String("CUSTOM_AUTH"),
 		ClientId:       aws.String(config.Envs.CognitoAppID),
 		AuthParameters: authParams,
 	})
 	if err != nil {
-		fmt.Println("Error initiating auth:", err)
+		if awsErr, ok := err.(awserr.Error); ok {
+			fmt.Printf("AWS Error Code: %s, Message: %s\n", awsErr.Code(), awsErr.Message())
+		}
 		return nil, fmt.Errorf("initiate auth failed: %w", err)
 	}
 
-	// Prepare challenge response
+	// 7. Prepare ChallengeResponses
 	challengeResponses := map[string]*string{
-		"USERNAME": aws.String(user.Email),
-		"ANSWER":   aws.String("1234"),
+		"USERNAME": aws.String(username),
+		"ANSWER":   aws.String(otp),
 	}
-
-	// Add SECRET_HASH to challenge if needed
 	if config.Envs.CognitoAppSecret != "" {
-		challengeResponses["SECRET_HASH"] = authParams["SECRET_HASH"]
+		challengeResponses["SECRET_HASH"] = aws.String(secretHash)
 	}
 
+	// 8. Respond to Auth Challenge
 	respondToAuthResp, err := cognitoSvc.RespondToAuthChallenge(&cognitoidentityprovider.RespondToAuthChallengeInput{
 		ClientId:           aws.String(config.Envs.CognitoAppID),
 		ChallengeName:      aws.String("CUSTOM_CHALLENGE"),
 		Session:            initAuthResp.Session,
 		ChallengeResponses: challengeResponses,
 	})
-
 	if err != nil {
 		fmt.Println("Error responding to auth challenge:", err)
-		return nil, err
+		return nil, fmt.Errorf("auth challenge failed: %w", err)
 	}
 
+	// 9. Return tokens
+	authResult := respondToAuthResp.AuthenticationResult
 	return &AuthResponse{
-		AccessToken:  *respondToAuthResp.AuthenticationResult.AccessToken,
-		RefreshToken: *respondToAuthResp.AuthenticationResult.RefreshToken,
-		ExpiresIn:    *respondToAuthResp.AuthenticationResult.ExpiresIn,
-		TokenType:    *respondToAuthResp.AuthenticationResult.TokenType,
+		AccessToken:  aws.StringValue(authResult.AccessToken),
+		RefreshToken: aws.StringValue(authResult.RefreshToken),
+		ExpiresIn:    aws.Int64Value(authResult.ExpiresIn),
+		TokenType:    aws.StringValue(authResult.TokenType),
 	}, nil
 }
+
+// func (s *authService) VerifyPhoneLogin(phoneNumber, otp string) (*AuthResponse, error) {
+// 	// Verify OTP
+// 	valid, err := s.otpService.VerifyOTP(phoneNumber, otp)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if !valid {
+// 		return nil, fmt.Errorf("invalid OTP")
+// 	}
+
+// 	// Clean up OTP
+// 	_ = repository.DeleteOTP(phoneNumber)
+
+// 	// Get user by phone number
+// 	user, err := s.userService.GetUserByPhone(phoneNumber)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("user not found")
+// 	}
+
+// 	// Initiate custom auth flow with Cognito
+// 	sess := session.Must(session.NewSession())
+// 	cognitoSvc := cognitoidentityprovider.New(sess, aws.NewConfig().WithRegion(config.Envs.CognitoRegion))
+// 	fmt.Println("Ci", config.Envs)
+// 	// Initiate custom auth flow
+// 	authParams := map[string]*string{
+// 		"USERNAME": aws.String(user.Email),
+// 	}
+
+// 	secretHash := aws.String((calculateSecretHash(
+// 		config.Envs.CognitoAppID,
+// 		config.Envs.CognitoAppSecret,
+// 		user.Email,
+// 	)))
+// 	fmt.Println("CalculateSecretHash", secretHash)
+// 	fmt.Println("user.Email", aws.String(user.Email))
+// 	// Add SECRET_HASH if client secret exists
+// 	if config.Envs.CognitoAppSecret != "" {
+// 		authParams["SECRET_HASH"] = secretHash
+// 	}
+
+// 	initAuthResp, err := cognitoSvc.InitiateAuth(&cognitoidentityprovider.InitiateAuthInput{
+// 		AuthFlow:       aws.String("CUSTOM_AUTH"),
+// 		ClientId:       aws.String(config.Envs.CognitoAppID),
+// 		AuthParameters: authParams,
+// 	})
+// 	if err != nil {
+// 		fmt.Println("Error initiating auth:", err)
+// 		return nil, fmt.Errorf("initiate auth failed: %w", err)
+// 	}
+
+// 	// Prepare challenge response
+// 	challengeResponses := map[string]*string{
+// 		"USERNAME": aws.String(user.Email),
+// 		"ANSWER":   aws.String(otp),
+// 	}
+
+// 	// Add SECRET_HASH to challenge if needed
+// 	if config.Envs.CognitoAppSecret != "" {
+// 		challengeResponses["SECRET_HASH"] = authParams["SECRET_HASH"]
+// 	}
+
+// 	respondToAuthResp, err := cognitoSvc.RespondToAuthChallenge(&cognitoidentityprovider.RespondToAuthChallengeInput{
+// 		ClientId:           aws.String(config.Envs.CognitoAppID),
+// 		ChallengeName:      aws.String("CUSTOM_CHALLENGE"),
+// 		Session:            initAuthResp.Session,
+// 		ChallengeResponses: challengeResponses,
+// 	})
+
+// 	if err != nil {
+// 		fmt.Println("Error responding to auth challenge:", err)
+// 		return nil, err
+// 	}
+
+// 	return &AuthResponse{
+// 		AccessToken:  *respondToAuthResp.AuthenticationResult.AccessToken,
+// 		RefreshToken: *respondToAuthResp.AuthenticationResult.RefreshToken,
+// 		ExpiresIn:    *respondToAuthResp.AuthenticationResult.ExpiresIn,
+// 		TokenType:    *respondToAuthResp.AuthenticationResult.TokenType,
+// 	}, nil
+// }
 
 func (s *authService) RefreshToken(refreshToken string) (*AuthResponse, error) {
 	sess := session.Must(session.NewSession())

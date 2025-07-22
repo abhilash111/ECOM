@@ -46,13 +46,15 @@ func (s *otpService) GenerateOTP() (string, error) {
 }
 
 func (s *otpService) SendOTP(phoneNumber string) (string, error) {
-	otp, err := s.GenerateOTP()
-	if err != nil {
-		return "", err
-	}
+	// otp, err := s.GenerateOTP()
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	otp := "123456" // 👈 Hardcoded OTP
 
 	// Store OTP in Redis
-	err = repository.StoreOTP(phoneNumber, otp, otpExpiration)
+	err := repository.StoreOTP(phoneNumber, otp, otpExpiration)
 	if err != nil {
 		return "", err
 	}
