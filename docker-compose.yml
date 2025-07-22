@@ -42,7 +42,7 @@ services:
       - "8080:8080"
     env_file:
     # use /infra/dev.env for development
-      - /infra/dev.env  # Use this for local development
+      - ./infra/dev.env  # Use this for local development
     environment:
       DB_HOST: db
       DB_PORT: 3306
