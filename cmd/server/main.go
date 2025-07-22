@@ -1,32 +1,72 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 
 	"github.com/abhilash111/ecom/config"
-	"github.com/abhilash111/ecom/internal/router"
-	"github.com/abhilash111/ecom/pkg/db"
-	"github.com/go-sql-driver/mysql"
+	"github.com/abhilash111/ecom/internal/controllers"
+	"github.com/abhilash111/ecom/internal/models"
+	"github.com/abhilash111/ecom/internal/repository"
+	"github.com/abhilash111/ecom/internal/routes"
+	"github.com/abhilash111/ecom/internal/services"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/gin-gonic/gin"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
-func main() {
-	conn, err := db.NewMySqlDB(mysql.Config{
-		User:                 config.Envs.DBUser,
-		Passwd:               config.Envs.DBPassword,
-		Addr:                 config.Envs.DBAddress,
-		DBName:               config.Envs.DBName,
-		Net:                  "tcp",
-		AllowNativePasswords: true,
-		ParseTime:            true,
-	})
+func LoadAWSConfig() aws.Config {
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		log.Fatal("DB connection failed:", err)
+		log.Fatalf("Unable to load AWS SDK config: %v", err)
+	}
+	return cfg
+}
+
+func main() {
+	cfg := LoadAWSConfig()
+	fmt.Println("AWS Region:", cfg.Region, cfg.Credentials)
+
+	dsn := config.Envs.DBUser + ":" + config.Envs.DBPassword + "@tcp(" + config.Envs.DBHost + ":" + config.Envs.DBPort + ")/" + config.Envs.DBName + "?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	r := router.SetupRouter(conn)
+	// Initialize Redis
+	err = repository.InitRedis()
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
 
-	log.Println("Starting server on port", config.Envs.Port)
-	if err := r.Run(":" + config.Envs.Port); err != nil {
-		log.Fatal("Failed to start server:", err)
+	// Auto-migrate models
+	err = db.AutoMigrate(&models.User{})
+	if err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	// Initialize services
+	userRepo := repository.NewUserRepository(db)
+	userService := services.NewUserService(userRepo)
+	otpService := services.NewOTPService()
+	authService := services.NewAuthService(userService, otpService)
+
+	// Initialize controllers
+	authController := controllers.NewAuthController(authService)
+	userController := controllers.NewUserController(userService)
+
+	// Create Gin router
+	router := gin.Default()
+
+	// Set up routes
+	routes.SetupRoutes(router, authController, userController)
+
+	// Start server
+	log.Println("Server starting on port 8080...")
+	if err := router.Run(":8080"); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }
