@@ -1,24 +1,6 @@
 # version: '3.9'
 
 services:
-  db:
-    image: mysql:8.0
-    restart: always
-    volumes:
-      - db_data:/var/lib/mysql
-    ports:
-      # - 3307:3306  # Change to 3307:3306 for local development to avoid conflicts with existing MySQL instances
-      - "3306:3306"  # Or remove if you don't need external MySQL access Make it 3307:3306 when running locally
-    environment:
-      MYSQL_ROOT_PASSWORD: kulkarni11
-      MYSQL_DATABASE: ecom
-      MYSQL_ROOT_HOST: '%'
-
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 15s
-      retries: 5
-      timeout: 3s
   redis:
     image: redis:alpine
     restart: always
@@ -33,9 +15,9 @@ services:
       - redis_data:/data  # Persist Redis data
 
   api:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: 448270596903.dkr.ecr.ap-south-1.amazonaws.com/hardware-ecom:latest
     restart: on-failure
     ports:
@@ -44,16 +26,14 @@ services:
     # use /infra/dev.env for development
       - ./infra/dev.env  # Use this for local development
     environment:
-      DB_HOST: db
-      DB_PORT: 3306
-      DB_USER: root
+      DB_HOST: 43.204.143.5
+      DB_PORT: 5432
+      DB_USER: abhilash
       DB_PASSWORD: kulkarni11
       DB_NAME: ecom
-      REDIS_HOST: redis
+      REDIS_HOST: redis # Use the service name for Redis local development
       REDIS_PORT: 6379
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
 

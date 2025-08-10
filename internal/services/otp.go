@@ -4,80 +4,81 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/abhilash111/ecom/config"
+	"github.com/abhilash111/ecom/internal/models"
 	"github.com/abhilash111/ecom/internal/repository"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/lambda"
-)
-
-const (
-	otpLength     = 6
-	otpExpiration = 5 * time.Minute
 )
 
 type OTPService interface {
-	GenerateOTP() (string, error)
-	SendOTP(phoneNumber string) (string, error)
-	VerifyOTP(phoneNumber, otp string) (bool, error)
+	GenerateOTP(phoneNumber string) (*models.OTP, error)
+	VerifyOTP(phoneNumber, code string) (bool, error)
 }
 
-type otpService struct{}
-
-func NewOTPService() OTPService {
-	return &otpService{}
+type otpService struct {
+	redisRepo repository.RedisRepository
+	config    *config.Config
 }
 
-func (s *otpService) GenerateOTP() (string, error) {
-	const digits = "0123456789"
-	otp := make([]byte, otpLength)
+func NewOTPService(redisRepo repository.RedisRepository, config *config.Config) OTPService {
+	return &otpService{
+		redisRepo: redisRepo,
+		config:    config,
+	}
+}
 
-	for i := range otp {
-		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
-		if err != nil {
-			return "", err
-		}
-		otp[i] = digits[num.Int64()]
+func (s *otpService) GenerateOTP(phoneNumber string) (*models.OTP, error) {
+	// Generate 6-digit OTP
+	code, err := generateRandomNumber(6)
+	if err != nil {
+		return nil, err
 	}
 
-	return string(otp), nil
-}
-
-func (s *otpService) SendOTP(phoneNumber string) (string, error) {
-	// otp, err := s.GenerateOTP()
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	otp := "123456" // 👈 Hardcoded OTP
-
-	// Store OTP in Redis
-	err := repository.StoreOTP(phoneNumber, otp, otpExpiration)
-	if err != nil {
-		return "", err
+	otp := &models.OTP{
+		PhoneNumber: phoneNumber,
+		Code:        code,
+		ExpiresAt:   int64(s.config.OTPExpiration.Seconds()),
 	}
 
-	// Invoke Lambda to send OTP
-	sess := session.Must(session.NewSession())
-	lambdaSvc := lambda.New(sess, aws.NewConfig().WithRegion(config.Envs.CognitoRegion))
-
-	payload := fmt.Sprintf(`{"phoneNumber": "%s", "otp": "%s"}`, phoneNumber, otp)
-	_, err = lambdaSvc.Invoke(&lambda.InvokeInput{
-		FunctionName: aws.String(config.Envs.LambdaOTPARN),
-		Payload:      []byte(payload),
-	})
-
+	err = s.redisRepo.StoreOTP(otp)
 	if err != nil {
-		// If Lambda fails, clean up the OTP
-		_ = repository.DeleteOTP(phoneNumber)
-		return "", err
+		return nil, err
 	}
 
 	return otp, nil
 }
 
-func (s *otpService) VerifyOTP(phoneNumber, otp string) (bool, error) {
-	return repository.VerifyOTP(phoneNumber, otp)
+func (s *otpService) VerifyOTP(phoneNumber, code string) (bool, error) {
+	storedOTP, err := s.redisRepo.GetOTP(phoneNumber)
+	fmt.Println("Retrieved OTP:", storedOTP)
+	if err != nil {
+		fmt.Println("Error retrieving OTP:", err)
+		return false, err
+	}
+
+	fmt.Println("Verifying OTP:", storedOTP.Code, "against provided code:", code)
+	if storedOTP.Code != code {
+		return false, nil
+	}
+
+	// Delete OTP after verification
+	err = s.redisRepo.DeleteOTP(phoneNumber)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func generateRandomNumber(length int) (string, error) {
+	const digits = "0123456789"
+	result := make([]byte, length)
+	for i := range result {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = digits[num.Int64()]
+	}
+	return string(result), nil
 }
