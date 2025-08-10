@@ -4,81 +4,68 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/abhilash111/ecom/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
+func AuthMiddleware(authService services.AuthService) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		authHeader := ctx.GetHeader("Authorization")
 		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			return
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Bearer token required"})
+		token, err := authService.ValidateToken(tokenString)
+		if err != nil || !token.Valid {
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
 
-		// In production, you would verify the token with Cognito's public keys
-		// This is a simplified version
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return []byte(""), nil // Replace with actual key verification
-		})
-
-		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
 			return
 		}
 
 		// Set user information in context
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			if username, ok := claims["username"].(string); ok {
-				c.Set("username", username)
-			}
-			if roles, ok := claims["custom:roles"].(string); ok {
-				c.Set("roles", strings.Split(roles, ","))
-			}
-		}
+		ctx.Set("userID", claims["id"])
+		ctx.Set("userEmail", claims["email"])
+		ctx.Set("userRole", claims["role"])
 
-		c.Next()
+		ctx.Next()
 	}
 }
 
-func RoleMiddleware(requiredRoles ...string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userRoles, exists := c.Get("roles")
+func RoleMiddleware(roles ...string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		userRole, exists := ctx.Get("userRole")
 		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "No roles found"})
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		roles, ok := userRoles.([]string)
+		roleStr, ok := userRole.(string)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Invalid roles format"})
+			ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Invalid role type"})
 			return
 		}
 
-		hasRole := false
-		for _, requiredRole := range requiredRoles {
-			for _, userRole := range roles {
-				if userRole == requiredRole {
-					hasRole = true
-					break
-				}
-			}
-			if hasRole {
+		hasAccess := false
+		for _, role := range roles {
+			if roleStr == role {
+				hasAccess = true
 				break
 			}
 		}
 
-		if !hasRole {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		if !hasAccess {
+			ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 			return
 		}
 
-		c.Next()
+		ctx.Next()
 	}
 }

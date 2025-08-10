@@ -3,35 +3,40 @@ package routes
 import (
 	"github.com/abhilash111/ecom/internal/controllers"
 	"github.com/abhilash111/ecom/internal/middleware"
+	"github.com/abhilash111/ecom/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(router *gin.Engine, authController *controllers.AuthController, userController *controllers.UserController) {
+func SetupRoutes(
+	router *gin.Engine,
+	authService services.AuthService,
+	otpService services.OTPService,
+	userService services.UserService,
+) {
+	authController := controllers.NewAuthController(authService, otpService)
+	userController := controllers.NewUserController(userService)
+
 	// Public routes
-	authGroup := router.Group("/auth")
+	public := router.Group("/api/v1")
 	{
-		authGroup.POST("/signup", authController.SignUp)
-		authGroup.POST("/login", authController.Login)
-		authGroup.POST("/phone-login/initiate", authController.InitiatePhoneLogin)
-		authGroup.POST("/phone-login/verify", authController.VerifyPhoneLogin)
-		authGroup.POST("/refresh", authController.RefreshToken)
+		public.POST("/register", authController.Register)
+		public.POST("/login/email", authController.LoginWithEmail)
+		public.POST("/otp/request", authController.RequestOTP)
+		public.POST("/login/otp", authController.LoginWithOTP)
 	}
 
 	// Protected routes
-	protectedGroup := router.Group("/api")
-	protectedGroup.Use(middleware.AuthMiddleware())
+	protected := router.Group("/api/v1")
+	protected.Use(middleware.AuthMiddleware(authService))
 	{
-		// User routes
-		userGroup := protectedGroup.Group("/users")
-		{
-			userGroup.GET("/me", userController.GetCurrentUser)
+		protected.GET("/profile", userController.GetProfile)
+	}
 
-			// Admin-only routes
-			adminGroup := userGroup.Group("")
-			adminGroup.Use(middleware.RoleMiddleware("admin"))
-			{
-				adminGroup.GET("", userController.GetAllUsers)
-			}
-		}
+	// Admin routes
+	admin := router.Group("/api/v1/admin")
+	admin.Use(middleware.AuthMiddleware(authService))
+	admin.Use(middleware.RoleMiddleware("admin"))
+	{
+		// Add admin-specific routes here
 	}
 }

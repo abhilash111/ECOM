@@ -1,72 +1,43 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"log"
 
 	"github.com/abhilash111/ecom/config"
-	"github.com/abhilash111/ecom/internal/controllers"
-	"github.com/abhilash111/ecom/internal/models"
+	"github.com/abhilash111/ecom/internal/database"
 	"github.com/abhilash111/ecom/internal/repository"
 	"github.com/abhilash111/ecom/internal/routes"
 	"github.com/abhilash111/ecom/internal/services"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
 )
 
-func LoadAWSConfig() aws.Config {
-	cfg, err := awsConfig.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		log.Fatalf("Unable to load AWS SDK config: %v", err)
-	}
-	return cfg
-}
-
 func main() {
-	cfg := LoadAWSConfig()
-	fmt.Println("AWS Region:", cfg.Region, cfg.Credentials)
+	// Load configuration
+	cfg := config.LoadConfig()
 
-	dsn := config.Envs.DBUser + ":" + config.Envs.DBPassword + "@tcp(" + config.Envs.DBHost + ":" + config.Envs.DBPort + ")/" + config.Envs.DBName + "?charset=utf8mb4&parseTime=True&loc=Local"
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
+	// Initialize database connection
+	db := database.ConnectDB()
 
-	// Initialize Redis
-	err = repository.InitRedis()
-	if err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
-	}
+	redisClient := database.ConnectRedis()
 
-	// Auto-migrate models
-	err = db.AutoMigrate(&models.User{})
-	if err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
-	}
+	userRepo := repository.NewUserRepository(db)
+	redisRepo := repository.NewRedisRepository(redisClient)
 
 	// Initialize services
-	userRepo := repository.NewUserRepository(db)
-	userService := services.NewUserService(userRepo)
-	otpService := services.NewOTPService()
-	authService := services.NewAuthService(userService, otpService)
+	authService := services.NewAuthService(userRepo, cfg)
+	otpService := services.NewOTPService(redisRepo, cfg)
+	userService := services.NewUserService(userRepo) // Add this line
 
-	// Initialize controllers
-	authController := controllers.NewAuthController(authService)
-	userController := controllers.NewUserController(userService)
-
-	// Create Gin router
+	// Initialize Gin
 	router := gin.Default()
 
-	// Set up routes
-	routes.SetupRoutes(router, authController, userController)
+	// Setup routes
+	routes.SetupRoutes(router, authService, otpService, userService)
 
 	// Start server
 	log.Println("Server starting on port 8080...")
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+
 }

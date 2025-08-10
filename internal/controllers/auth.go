@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/abhilash111/ecom/internal/models"
@@ -10,113 +11,122 @@ import (
 
 type AuthController struct {
 	authService services.AuthService
+	otpService  services.OTPService
 }
 
-func NewAuthController(authService services.AuthService) *AuthController {
-	return &AuthController{authService: authService}
+func NewAuthController(authService services.AuthService, otpService services.OTPService) *AuthController {
+	return &AuthController{
+		authService: authService,
+		otpService:  otpService,
+	}
 }
 
-type SignUpRequest struct {
-	Email       string        `json:"email" binding:"required,email"`
-	PhoneNumber string        `json:"phone_number" binding:"required"`
-	Password    string        `json:"password" binding:"required,min=8"`
-	Roles       []models.Role `json:"roles" binding:"required"`
-}
-
-func (c *AuthController) SignUp(ctx *gin.Context) {
-	var req SignUpRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
+func (c *AuthController) Register(ctx *gin.Context) {
+	var user models.User
+	if err := ctx.ShouldBindJSON(&user); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	user, err := c.authService.SignUp(req.Email, req.PhoneNumber, req.Password, req.Roles)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	//Print User Object for debugging
+	fmt.Println("Registering User:", user.Password)
 
-	ctx.JSON(http.StatusCreated, user)
-}
-
-type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
-func (c *AuthController) Login(ctx *gin.Context) {
-	var req LoginRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
+	if err := c.authService.Register(&user); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	authResponse, err := c.authService.LoginWithPassword(req.Username, req.Password)
+	ctx.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
+}
+
+func (c *AuthController) LoginWithEmail(ctx *gin.Context) {
+	var credentials struct {
+		Email    string `json:"email" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&credentials); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	user, err := c.authService.LoginWithEmail(credentials.Email, credentials.Password)
+	fmt.Println("User found:", user)
 	if err != nil {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, authResponse)
+	token, err := c.authService.GenerateToken(user)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"token": token})
 }
 
-type PhoneLoginInitiateRequest struct {
-	PhoneNumber string `json:"phone_number" binding:"required"`
+func (c *AuthController) RequestOTP(ctx *gin.Context) {
+	var request struct {
+		PhoneNumber string `json:"phone_number" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	otp, err := c.otpService.GenerateOTP(request.PhoneNumber)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate OTP"})
+		return
+	}
+
+	// In production, you would send the OTP via SMS
+	ctx.JSON(http.StatusOK, gin.H{"message": "OTP generated", "otp": otp.Code})
 }
 
-func (c *AuthController) InitiatePhoneLogin(ctx *gin.Context) {
-	var req PhoneLoginInitiateRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
+func (c *AuthController) LoginWithOTP(ctx *gin.Context) {
+	var request struct {
+		PhoneNumber string `json:"phone_number" binding:"required"`
+		OTP         string `json:"otp" binding:"required"`
+	}
+
+	if err := ctx.ShouldBindJSON(&request); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	otp, err := c.authService.InitiatePhoneLogin(req.PhoneNumber)
+	valid, err := c.otpService.VerifyOTP(request.PhoneNumber, request.OTP)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify OTP"})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "OTP sent", "otp": otp}) // In production, don't return OTP
-}
-
-type PhoneLoginVerifyRequest struct {
-	PhoneNumber string `json:"phone_number" binding:"required"`
-	OTP         string `json:"otp" binding:"required"`
-}
-
-func (c *AuthController) VerifyPhoneLogin(ctx *gin.Context) {
-	var req PhoneLoginVerifyRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !valid {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid OTP"})
 		return
 	}
 
-	authResponse, err := c.authService.VerifyPhoneLogin(req.PhoneNumber, req.OTP)
+	user, err := c.authService.GetUserByPhone(request.PhoneNumber)
 	if err != nil {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, authResponse)
-}
-
-type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
-}
-
-func (c *AuthController) RefreshToken(ctx *gin.Context) {
-	var req RefreshTokenRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	authResponse, err := c.authService.RefreshToken(req.RefreshToken)
+	token, err := c.authService.GenerateToken(user)
 	if err != nil {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, authResponse)
+	ctx.JSON(http.StatusOK, gin.H{
+		"message": "OTP verified successfully",
+		"token":   token,
+		"user": gin.H{
+			"id":    user.ID,
+			"name":  user.Name,
+			"email": user.Email,
+			"role":  user.Role,
+		},
+	})
 }

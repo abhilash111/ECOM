@@ -5,43 +5,59 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/abhilash111/ecom/config"
+	"github.com/abhilash111/ecom/internal/models"
 	"github.com/go-redis/redis/v8"
 )
 
-var (
-	redisClient *redis.Client
-	ctx         = context.Background()
+const (
+	otpExpiration = 5 * time.Minute
 )
 
-func InitRedis() error {
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%s", config.Envs.RedisHost, config.Envs.RedisPort),
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	_, err := redisClient.Ping(ctx).Result()
-	return err
+type RedisRepository interface {
+	StoreOTP(otp *models.OTP) error
+	GetOTP(phoneNumber string) (*models.OTP, error)
+	DeleteOTP(phoneNumber string) error
 }
 
-func StoreOTP(phoneNumber, otp string, expiration time.Duration) error {
-	err := redisClient.Set(ctx, fmt.Sprintf("otp:%s", phoneNumber), otp, expiration).Err()
-	return err
+type redisRepository struct {
+	client *redis.Client
 }
 
-func VerifyOTP(phoneNumber, otp string) (bool, error) {
-	storedOTP, err := redisClient.Get(ctx, fmt.Sprintf("otp:%s", phoneNumber)).Result()
-	if err == redis.Nil {
-		return false, nil // OTP not found
-	} else if err != nil {
-		return false, err
+func NewRedisRepository(client *redis.Client) RedisRepository {
+	return &redisRepository{client: client}
+}
+
+func (r *redisRepository) StoreOTP(otp *models.OTP) error {
+	ctx := context.Background()
+	// Format the OTP Model and Print for debugging
+
+	fmt.Println("Storing OTP:", otp.Code, "for phone number:", otp.PhoneNumber)
+	return r.client.Set(ctx, otp.PhoneNumber, otp.Code, otpExpiration).Err()
+}
+
+func (r *redisRepository) GetOTP(phoneNumber string) (*models.OTP, error) {
+	ctx := context.Background()
+	fmt.Println("Retrieving OTP for phone number:", phoneNumber)
+	code, err := r.client.Get(ctx, phoneNumber).Result()
+	if err != nil {
+		fmt.Println("Error getting Redis for OTP:", err)
+		return nil, err
 	}
 
-	return storedOTP == otp, nil
+	ttl, err := r.client.TTL(ctx, phoneNumber).Result()
+	if err != nil {
+		fmt.Println("Error getting TTL for OTP:", err)
+		return nil, err
+	}
+
+	return &models.OTP{
+		PhoneNumber: phoneNumber,
+		Code:        code,
+		ExpiresAt:   int64(ttl.Seconds()),
+	}, nil
 }
 
-func DeleteOTP(phoneNumber string) error {
-	_, err := redisClient.Del(ctx, fmt.Sprintf("otp:%s", phoneNumber)).Result()
-	return err
+func (r *redisRepository) DeleteOTP(phoneNumber string) error {
+	ctx := context.Background()
+	return r.client.Del(ctx, phoneNumber).Err()
 }
