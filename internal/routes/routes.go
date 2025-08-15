@@ -3,40 +3,37 @@ package routes
 import (
 	"github.com/abhilash111/ecom/internal/controllers"
 	"github.com/abhilash111/ecom/internal/middleware"
-	"github.com/abhilash111/ecom/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(
 	router *gin.Engine,
-	authService services.AuthService,
-	otpService services.OTPService,
-	userService services.UserService,
+	authController *controllers.AuthController,
+	userController *controllers.UserController,
+	authMiddleware gin.HandlerFunc,
 ) {
-	authController := controllers.NewAuthController(authService, otpService)
-	userController := controllers.NewUserController(userService)
-
-	// Public routes
-	public := router.Group("/api/v1")
+	api := router.Group("/api")
 	{
-		public.POST("/register", authController.Register)
-		public.POST("/login/email", authController.LoginWithEmail)
-		public.POST("/otp/request", authController.RequestOTP)
-		public.POST("/login/otp", authController.LoginWithOTP)
-	}
+		auth := api.Group("/auth")
+		{
+			auth.POST("/register", authController.Register)
+			auth.POST("/login/email", authController.LoginWithEmail)
+			auth.POST("/otp/request", authController.RequestOTP)
+			auth.POST("/otp/verify", authController.LoginWithOTP)
+			auth.POST("/logout", authController.Logout)
+			auth.POST("/refresh", authController.RefreshToken)
+		}
 
-	// Protected routes
-	protected := router.Group("/api/v1")
-	protected.Use(middleware.AuthMiddleware(authService))
-	{
-		protected.GET("/profile", userController.GetProfile)
-	}
+		user := api.Group("/user")
+		user.Use(authMiddleware)
+		{
+			user.GET("/profile", userController.GetProfile)
+		}
 
-	// Admin routes
-	admin := router.Group("/api/v1/admin")
-	admin.Use(middleware.AuthMiddleware(authService))
-	admin.Use(middleware.RoleMiddleware("admin"))
-	{
-		// Add admin-specific routes here
+		admin := api.Group("/admin")
+		admin.Use(authMiddleware, middleware.RoleMiddleware("admin"))
+		{
+			// Admin routes
+		}
 	}
 }

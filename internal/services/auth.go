@@ -5,118 +5,238 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/abhilash111/ecom/config"
-	"github.com/abhilash111/ecom/internal/models"
 	"github.com/abhilash111/ecom/internal/repository"
+
+	"github.com/abhilash111/ecom/internal/models"
+
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService interface {
-	GenerateToken(user *models.User) (string, error)
-	ValidateToken(tokenString string) (*jwt.Token, error)
+	RegisterUser(request models.RegisterRequest) (*models.User, error)
 	LoginWithEmail(email, password string) (*models.User, error)
-	Register(user *models.User) error
-	GetUserByPhone(phone string) (*models.User, error)
+	GenerateTokenPair(user *models.User) (*models.TokenPair, error)
+	FindUserByPhone(phone string) (*models.User, error) // Added this method
+	RefreshAccessToken(refreshToken string) (*models.TokenPair, error)
+	RevokeRefreshToken(token string) error
+	CreateSession(user *models.User, userAgent, ipAddress string) (*models.Session, error)
+	ValidateSession(sessionID string) (bool, *models.User, error)
+	DeleteSession(sessionID string) error
+	ParseJWT(tokenString string) (*jwt.Token, error)
 }
 
 type authService struct {
-	userRepo repository.UserRepository
-	config   *config.Config
+	userRepo   repository.UserRepository
+	redisRepo  repository.RedisRepository
+	jwtSecret  string
+	accessExp  time.Duration
+	refreshExp time.Duration
 }
 
-func NewAuthService(userRepo repository.UserRepository, config *config.Config) AuthService {
+func NewAuthService(
+	userRepo repository.UserRepository,
+	redisRepo repository.RedisRepository,
+	jwtSecret string,
+	accessExp time.Duration,
+	refreshExp time.Duration,
+) AuthService {
 	return &authService{
-		userRepo: userRepo,
-		config:   config,
+		userRepo:   userRepo,
+		redisRepo:  redisRepo,
+		jwtSecret:  jwtSecret,
+		accessExp:  accessExp,
+		refreshExp: refreshExp,
 	}
 }
 
-func (s *authService) GenerateToken(user *models.User) (string, error) {
-	claims := jwt.MapClaims{
-		"id":    user.ID,
-		"email": user.Email,
-		"role":  user.Role,
-		"exp":   time.Now().Add(s.config.JWTExpiration).Unix(),
+func (s *authService) RegisterUser(request models.RegisterRequest) (*models.User, error) {
+	_, err := s.userRepo.FindUserByPhone(request.PhoneNumber)
+	if err == nil {
+		return nil, errors.New("user with this phone number already exists")
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.config.JWTSecret))
-}
+	_, err = s.userRepo.FindUserByEmail(request.Email)
+	if err == nil {
+		return nil, errors.New("user with this email already exists")
+	}
 
-func (s *authService) ValidateToken(tokenString string) (*jwt.Token, error) {
-	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+	pkg, err := s.userRepo.GetPackageByType(request.SubscriptionPack)
+	if err != nil {
+		return nil, errors.New("invalid subscription package")
+	}
+
+	user := &models.User{
+		Name:        request.Name,
+		PhoneNumber: request.PhoneNumber,
+		Email:       request.Email,
+		IsPassword:  request.Password != "",
+		Role:        models.RoleUser,
+	}
+
+	if request.Password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(request.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, err
 		}
-		return []byte(s.config.JWTSecret), nil
-	})
-}
-
-func (s *authService) LoginWithEmail(email, password string) (*models.User, error) {
-	const hashFromDB = "$2a$10$CwTycUXWue0Thq9StjUM0uJ8Yq2xROfnpK76a5AxzI3DwstnK3/ZG"
-	testPassword := "admin123"
-
-	err := bcrypt.CompareHashAndPassword([]byte(hashFromDB), []byte(testPassword))
-	if err != nil {
-		fmt.Println("Static compare failed:", err)
-	} else {
-		fmt.Println("Static compare passed ✅")
-	}
-	user, err := s.userRepo.FindByEmail(email)
-	fmt.Println("Stored Hash:", user.Password)
-	fmt.Println("Password Input:", password)
-	fmt.Println("Hash Length:", len(user.Password))
-
-	if err != nil {
-		fmt.Println("Static compare failed:", err)
-	} else {
-		fmt.Println("Static compare passed ✅")
+		user.Password = string(hashedPassword)
 	}
 
+	err = s.userRepo.CreateUser(user)
 	if err != nil {
-		return nil, errors.New("invalid credentials")
+		return nil, err
 	}
 
-	// Compare hashed password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		fmt.Println("Password mismatch for user:", err)
-		return nil, errors.New("invalid credentials")
+	now := time.Now()
+	subscription := &models.UserSubscription{
+		UserID:               user.ID,
+		PackageID:            pkg.ID,
+		StartsAt:             now,
+		ExpiresAt:            now.AddDate(1, 0, 0),
+		RemainingViewCredits: pkg.ViewListingLimit,
+		RemainingAddCredits:  pkg.AddListingLimit,
+	}
+
+	err = s.userRepo.CreateSubscription(subscription)
+	if err != nil {
+		return nil, err
 	}
 
 	return user, nil
 }
 
-func (s *authService) Register(user *models.User) error {
-
-	fmt.Println("➡️ Registering User")
-	fmt.Println("Plain Password:", user)
-
-	// Hash password before storing
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+func (s *authService) LoginWithEmail(email, password string) (*models.User, error) {
+	user, err := s.userRepo.FindUserByEmail(email)
 	if err != nil {
-		return err
-	}
-	fmt.Println("Hashed Password:", string(hashedPassword))
-	user.Password = string(hashedPassword)
-
-	// Set default role if not provided
-	if user.Role == "" {
-		user.Role = models.RoleUser
+		return nil, errors.New("invalid email or password")
 	}
 
-	// Check if email or phone already exists
-	if _, err := s.userRepo.FindByEmail(user.Email); err == nil {
-		return errors.New("email already exists")
+	if !user.IsPassword {
+		return nil, errors.New("password login not enabled for this user")
 	}
 
-	if _, err := s.userRepo.FindByPhone(user.PhoneNumber); err == nil {
-		return errors.New("phone number already exists")
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+	if err != nil {
+		return nil, errors.New("invalid email or password")
 	}
 
-	return s.userRepo.Create(user)
+	return user, nil
 }
 
-func (s *authService) GetUserByPhone(phone string) (*models.User, error) {
-	return s.userRepo.FindByPhone(phone)
+func (s *authService) generateAccessToken(user *models.User) (string, error) {
+	expiryTime := time.Now().Add(s.accessExp)
+
+	claims := jwt.MapClaims{
+		"id":    user.ID,
+		"email": user.Email,
+		"role":  user.Role,
+		"exp":   expiryTime.Unix(),
+		"iat":   time.Now().Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+
+	return signedToken, nil
+}
+
+func (s *authService) GenerateTokenPair(user *models.User) (*models.TokenPair, error) {
+	accessToken, err := s.generateAccessToken(user)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshToken := uuid.New().String()
+	refreshTokenRecord := models.RefreshToken{
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(s.refreshExp),
+	}
+
+	if err := s.userRepo.CreateRefreshToken(&refreshTokenRecord); err != nil {
+		return nil, err
+	}
+
+	return &models.TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
+}
+
+func (s *authService) RefreshAccessToken(refreshToken string) (*models.TokenPair, error) {
+	tokenRecord, err := s.userRepo.GetRefreshToken(refreshToken)
+	if err != nil {
+		return nil, errors.New("invalid refresh token")
+	}
+
+	if tokenRecord.Revoked || tokenRecord.ExpiresAt.Before(time.Now()) {
+		return nil, errors.New("refresh token expired or revoked")
+	}
+
+	user, err := s.userRepo.GetUserByID(tokenRecord.UserID)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+
+	return s.GenerateTokenPair(user)
+}
+
+func (s *authService) RevokeRefreshToken(token string) error {
+	return s.userRepo.RevokeRefreshToken(token)
+}
+
+func (s *authService) CreateSession(user *models.User, userAgent, ipAddress string) (*models.Session, error) {
+	session := &models.Session{
+		UserID:    user.ID,
+		SessionID: uuid.New().String(),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		UserAgent: userAgent,
+		IPAddress: ipAddress,
+	}
+
+	if err := s.userRepo.CreateSession(session); err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (s *authService) ValidateSession(sessionID string) (bool, *models.User, error) {
+	fmt.Print("Validating session with ID:", sessionID, "\n")
+	session, err := s.userRepo.GetSession(sessionID)
+	if err != nil {
+		return false, nil, err
+	}
+
+	if session.ExpiresAt.Before(time.Now()) {
+		return false, nil, nil
+	}
+
+	user, err := s.userRepo.GetUserByID(session.UserID)
+	if err != nil {
+		return false, nil, err
+	}
+
+	return true, user, nil
+}
+
+func (s *authService) DeleteSession(sessionID string) error {
+	return s.userRepo.DeleteSession(sessionID)
+}
+
+func (s *authService) ParseJWT(tokenString string) (*jwt.Token, error) {
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(s.jwtSecret), nil
+	})
+}
+
+func (s *authService) FindUserByPhone(phone string) (*models.User, error) {
+	return s.userRepo.FindUserByPhone(phone)
 }

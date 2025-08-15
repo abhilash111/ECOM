@@ -7,6 +7,8 @@ import (
 
 type UserService interface {
 	GetUserByID(id uint) (*models.User, error)
+	GetCurrentSubscription(userID uint) (*models.UserSubscription, error)
+	UpdateUser(user *models.User) error
 }
 
 type userService struct {
@@ -18,5 +20,13 @@ func NewUserService(userRepo repository.UserRepository) UserService {
 }
 
 func (s *userService) GetUserByID(id uint) (*models.User, error) {
-	return s.userRepo.FindByID(id)
+	return s.userRepo.GetUserByID(id)
+}
+
+func (s *userService) GetCurrentSubscription(userID uint) (*models.UserSubscription, error) {
+	return s.userRepo.GetCurrentSubscription(userID)
+}
+
+func (s *userService) UpdateUser(user *models.User) error {
+	return s.userRepo.UpdateUser(user)
 }

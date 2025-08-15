@@ -2,9 +2,12 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/abhilash111/ecom/config"
+	"github.com/abhilash111/ecom/internal/controllers"
 	"github.com/abhilash111/ecom/internal/database"
+	"github.com/abhilash111/ecom/internal/middleware"
 	"github.com/abhilash111/ecom/internal/repository"
 	"github.com/abhilash111/ecom/internal/routes"
 	"github.com/abhilash111/ecom/internal/services"
@@ -19,25 +22,35 @@ func main() {
 	db := database.ConnectDB()
 
 	redisClient := database.ConnectRedis()
-
 	userRepo := repository.NewUserRepository(db)
 	redisRepo := repository.NewRedisRepository(redisClient)
 
 	// Initialize services
-	authService := services.NewAuthService(userRepo, cfg)
+	authService := services.NewAuthService(
+		userRepo,
+		redisRepo,
+		cfg.JWTSecret,
+		15*time.Minute, // Access token expiry
+		7*24*time.Hour, // Refresh token expiry
+	)
 	otpService := services.NewOTPService(redisRepo, cfg)
-	userService := services.NewUserService(userRepo) // Add this line
+	userService := services.NewUserService(userRepo)
 
-	// Initialize Gin
+	// Initialize controllers
+	authController := controllers.NewAuthController(authService, otpService)
+	userController := controllers.NewUserController(userService)
+
+	// Initialize middleware
+	authMiddleware := middleware.AuthMiddleware(authService)
+
+	// Setup router
 	router := gin.Default()
-
-	// Setup routes
-	routes.SetupRoutes(router, authService, otpService, userService)
+	routes.SetupRoutes(router, authController, userController, authMiddleware)
 
 	// Start server
-	log.Println("Server starting on port 8080...")
+	log.Println("Server starting on :8080")
 	if err := router.Run(":8080"); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		log.Fatal("Failed to start server:", err)
 	}
 
 }
