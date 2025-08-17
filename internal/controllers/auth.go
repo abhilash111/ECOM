@@ -55,6 +55,13 @@ func (c *AuthController) LoginWithEmail(ctx *gin.Context) {
 	}
 
 	user, err := c.authService.LoginWithEmail(request.Email, request.Password)
+	userResponse := models.UserResponse{
+		Name:        user.Name,
+		PhoneNumber: user.PhoneNumber,
+		Email:       user.Email,
+		Role:        string(user.Role),
+	}
+
 	if err != nil {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -77,6 +84,7 @@ func (c *AuthController) LoginWithEmail(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{
 		"access_token":  tokenPair.AccessToken,
 		"refresh_token": tokenPair.RefreshToken,
+		"user":          userResponse,
 	})
 }
 
